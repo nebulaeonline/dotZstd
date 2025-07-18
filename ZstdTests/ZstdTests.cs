@@ -10,7 +10,6 @@ public class ZstdTests
     [Fact]
     public void CompressDecompress_ByteArray_Roundtrip()
     {
-        Zstd.Init();
         byte[] compressed = Zstd.Compress(Plaintext, 3);
         byte[] decompressed = Zstd.Decompress(compressed, Plaintext.Length);
         Assert.Equal(Plaintext, decompressed);
@@ -19,7 +18,6 @@ public class ZstdTests
     [Fact]
     public void CompressDecompress_Span_Roundtrip()
     {
-        Zstd.Init();
         int maxCompressed = Zstd.GetMaxCompressedSize(Plaintext.Length);
         byte[] compressedBuffer = new byte[maxCompressed];
         byte[] decompressedBuffer = new byte[Plaintext.Length];
@@ -34,7 +32,6 @@ public class ZstdTests
     [Fact]
     public void CompressDecompress_Stream_Roundtrip()
     {
-        Zstd.Init();
         byte[] compressedBuffer = new byte[Zstd.GetMaxCompressedSize(Plaintext.Length)];
         byte[] decompressedBuffer = new byte[Plaintext.Length];
 
@@ -111,8 +108,6 @@ public class ZstdTests
     [Fact]
     public unsafe void Manual_CompressStream_YieldsValidZstdFrame()
     {
-        Zstd.Init();
-
         byte[] input = Encoding.UTF8.GetBytes("chunk-1-chunk-2-chunk-3");
         byte[] output = new byte[256];
         byte[] tail = new byte[256];
@@ -175,8 +170,6 @@ public class ZstdTests
     [Fact]
     public void ByteExampleWorks()
     {
-        Zstd.Init();
-
         byte[] input = Encoding.UTF8.GetBytes("some highly compressible text...");
         int level = 3;
 
@@ -190,8 +183,6 @@ public class ZstdTests
     [Fact]
     public void SpanExampleWorks()
     {
-        Zstd.Init();
-
         ReadOnlySpan<byte> input = "some highly compressible text..."u8;
         Span<byte> compressed = new byte[Zstd.GetMaxCompressedSize(input.Length)];
         Span<byte> decompressed = new byte[input.Length];
@@ -206,14 +197,12 @@ public class ZstdTests
     [Fact]
     public void StreamingExampleWorks()
     {
-        Zstd.Init();
-
         var chunks = new[]
         {
-    Encoding.UTF8.GetBytes("chunk-1-"),
-    Encoding.UTF8.GetBytes("chunk-2-"),
-    Encoding.UTF8.GetBytes("chunk-3")
-};
+            Encoding.UTF8.GetBytes("chunk-1-"),
+            Encoding.UTF8.GetBytes("chunk-2-"),
+            Encoding.UTF8.GetBytes("chunk-3")
+        };
 
         using var compressor = new ZstdCompressStream(3);
         using var compressedStream = new MemoryStream();
@@ -241,6 +230,142 @@ public class ZstdTests
         int outputWritten = decompressor.Decompress(compressed, output, out consumedFinal);
 
         string result = Encoding.UTF8.GetString(output[..outputWritten]);
+        Assert.Equal("chunk-1-chunk-2-chunk-3", result);
+    }
+
+    [Fact]
+    public void CompressDecompress_WithDictionary_Works()
+    {
+        // Reusable data for "training" a fake dictionary
+        var trainingSamples = new[]
+        {
+            "chunk-1-",
+            "chunk-2-",
+            "chunk-3",
+            "chunk-4-",
+            "chunk-5"
+        };
+
+        // Create a fake dictionary by simply concatenating similar samples
+        var dictText = string.Join("", trainingSamples);
+        var dictBytes = Encoding.UTF8.GetBytes(dictText);
+
+        var input = Encoding.UTF8.GetBytes("chunk-1-chunk-2-chunk-3");
+
+        // Output buffers
+        var compressed = new byte[Zstd.GetMaxCompressedSize(input.Length)];
+        var decompressed = new byte[input.Length];
+
+        using var cdict = new ZstdCompressionDictionary(dictBytes, compressionLevel: 3);
+        using var ddict = new ZstdDecompressionDictionary(dictBytes);
+
+        // Compress using the dictionary
+        int compressedSize = Zstd.CompressWithDict(input, compressed, cdict);
+
+        // Decompress using the dictionary
+        int decompressedSize = Zstd.DecompressWithDict(compressed.AsSpan(0, compressedSize), decompressed, ddict);
+
+        // Verify result
+        var result = Encoding.UTF8.GetString(decompressed.AsSpan(0, decompressedSize));
+        Assert.Equal("chunk-1-chunk-2-chunk-3", result);
+    }
+
+    [Fact]
+    public void Streaming_CompressDecompress_WithDictionary_Works()
+    {
+        var input = Encoding.UTF8.GetBytes("chunk-1-chunk-2-chunk-3");
+
+        // Create a fake dictionary from related samples
+        var dictSource = Encoding.UTF8.GetBytes("chunk-1-chunk-2-chunk-3-chunk-4-chunk-5");
+
+        using var cdict = new ZstdCompressionDictionary(dictSource, 3);
+        using var ddict = new ZstdDecompressionDictionary(dictSource);
+
+        using var compressor = new ZstdCompressStream(cdict);
+        using var compressedStream = new MemoryStream();
+        Span<byte> tempBuffer = stackalloc byte[256];
+
+        // Compress
+        int written = compressor.Compress(input, tempBuffer, out var consumed);
+        Assert.True(consumed);
+        compressedStream.Write(tempBuffer[..written]);
+
+        written = compressor.Finish(tempBuffer);
+        compressedStream.Write(tempBuffer[..written]);
+
+        var compressed = compressedStream.ToArray();
+
+        // Decompress
+        using var decompressor = new ZstdDecompressStream(ddict);
+        var outputBuffer = new byte[input.Length];
+
+        written = decompressor.Decompress(compressed, outputBuffer, out var allInputUsed);
+        Assert.True(allInputUsed);
+
+        string result = Encoding.UTF8.GetString(outputBuffer, 0, written);
+        Assert.Equal("chunk-1-chunk-2-chunk-3", result);
+    }
+
+    [Fact]
+    public void CompressWithDictionaryExampleWorks()
+    {
+        // Dictionary source data (could be trained)
+        var dict = Encoding.UTF8.GetBytes("chunk-1-chunk-2-chunk-3");
+
+        // Data to compress
+        var input = Encoding.UTF8.GetBytes("chunk-1-chunk-2-chunk-3");
+
+        // Allocate output buffers
+        var compressed = new byte[Zstd.GetMaxCompressedSize(input.Length)];
+        var decompressed = new byte[input.Length];
+
+        // Create compression and decompression dictionary wrappers
+        using var cdict = new ZstdCompressionDictionary(dict, compressionLevel: 3);
+        using var ddict = new ZstdDecompressionDictionary(dict);
+
+        // Compress using dictionary
+        int compressedSize = Zstd.CompressWithDict(input, compressed, cdict);
+
+        // Decompress using dictionary
+        int decompressedSize = Zstd.DecompressWithDict(compressed.AsSpan(0, compressedSize), decompressed, ddict);
+
+        // Get the original string back
+        string result = Encoding.UTF8.GetString(decompressed.AsSpan(0, decompressedSize));
+        Assert.Equal("chunk-1-chunk-2-chunk-3", result);
+    }
+
+    [Fact]
+    public void StreamingCompressWithDictionaryExampleWorks()
+    {
+        // Dictionary source data
+        var dict = Encoding.UTF8.GetBytes("chunk-1-chunk-2-chunk-3");
+        var input = Encoding.UTF8.GetBytes("chunk-1-chunk-2-chunk-3");
+
+        // Wrap dictionaries
+        using var cdict = new ZstdCompressionDictionary(dict, 3);
+        using var ddict = new ZstdDecompressionDictionary(dict);
+
+        // Set up streaming compression
+        using var compressor = new ZstdCompressStream(cdict);
+        using var compressedStream = new MemoryStream();
+        Span<byte> buffer = stackalloc byte[256];
+
+        // Compress input
+        int written = compressor.Compress(input, buffer, out var consumed);
+        compressedStream.Write(buffer[..written]);
+
+        // Finish stream and collect remaining output
+        written = compressor.Finish(buffer);
+        compressedStream.Write(buffer[..written]);
+
+        byte[] compressed = compressedStream.ToArray();
+
+        // Decompress stream
+        using var decompressor = new ZstdDecompressStream(ddict);
+        byte[] output = new byte[input.Length];
+        written = decompressor.Decompress(compressed, output, out var fullyConsumed);
+
+        string result = Encoding.UTF8.GetString(output, 0, written);
         Assert.Equal("chunk-1-chunk-2-chunk-3", result);
     }
 }

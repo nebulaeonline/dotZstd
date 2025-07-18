@@ -20,6 +20,17 @@ public sealed class ZstdCompressStream : IDisposable
         Check(initResult, "ZSTD_initCStream");
     }
 
+    public ZstdCompressStream(ZstdCompressionDictionary dict)
+    {
+        ZstdLibrary.Init();
+        _cstream = ZstdInterop.ZSTD_createCStream();
+        if (_cstream == IntPtr.Zero)
+            throw new InvalidOperationException("Failed to allocate ZSTD_CStream");
+
+        var initResult = ZstdInterop.ZSTD_initCStream_usingCDict(_cstream, dict.Handle);
+        Check(initResult, "ZSTD_initCStream_usingCDict");
+    }
+
     /// <summary>
     /// Compresses the specified input data into the provided output buffer.
     /// </summary>

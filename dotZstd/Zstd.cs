@@ -9,11 +9,6 @@ namespace nebulae.dotZstd;
 
 public static class Zstd
 {
-    public static void Init()
-    {
-        ZstdLibrary.Init();
-    }
-
     /// <summary>
     /// Compresses the input data using the specified compression level and writes the compressed data to the output
     /// buffer.
@@ -155,5 +150,83 @@ public static class Zstd
         }
 
         return checked((int)result);
+    }
+
+    /// <summary>
+    /// Compresses the input data using the specified Zstandard compression dictionary.
+    /// </summary>
+    /// <param name="input">The input data to be compressed. Must not be empty.</param>
+    /// <param name="output">The buffer to store the compressed data. Must not be empty.</param>
+    /// <param name="dict">The compression dictionary to use for the operation.</param>
+    /// <returns>The size of the compressed data in bytes.</returns>
+    /// <exception cref="ArgumentException">Thrown if <paramref name="input"/> or <paramref name="output"/> is empty.</exception>
+    /// <exception cref="InvalidOperationException">Thrown if the compression context could not be created.</exception>
+    public static unsafe int CompressWithDict(ReadOnlySpan<byte> input, Span<byte> output, ZstdCompressionDictionary dict)
+    {
+        if (input.IsEmpty) throw new ArgumentException("Input is empty", nameof(input));
+        if (output.IsEmpty) throw new ArgumentException("Output is empty", nameof(output));
+
+        fixed (byte* inPtr = input)
+        fixed (byte* outPtr = output)
+        {
+            IntPtr ctx = ZstdInterop.ZSTD_createCCtx();
+            if (ctx == IntPtr.Zero)
+                throw new InvalidOperationException("Failed to create compression context");
+
+            try
+            {
+                var result = ZstdInterop.ZSTD_compress_usingCDict(
+                    ctx,
+                    (IntPtr)outPtr, (nuint)output.Length,
+                    (IntPtr)inPtr, (nuint)input.Length,
+                    dict.Handle);
+
+                CheckResult(result, "ZSTD_compress_usingCDict");
+                return (int)result;
+            }
+            finally
+            {
+                ZstdInterop.ZSTD_freeCCtx(ctx);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Decompresses the specified input data using a Zstandard decompression dictionary.
+    /// </summary>
+    /// <param name="input">The compressed data to be decompressed. Cannot be empty.</param>
+    /// <param name="output">The buffer to store the decompressed data. Cannot be empty.</param>
+    /// <param name="dict">The decompression dictionary to use for the operation.</param>
+    /// <returns>The number of bytes written to the output buffer.</returns>
+    /// <exception cref="ArgumentException">Thrown if <paramref name="input"/> or <paramref name="output"/> is empty.</exception>
+    /// <exception cref="InvalidOperationException">Thrown if the decompression context cannot be created.</exception>
+    public static unsafe int DecompressWithDict(ReadOnlySpan<byte> input, Span<byte> output, ZstdDecompressionDictionary dict)
+    {
+        if (input.IsEmpty) throw new ArgumentException("Input is empty", nameof(input));
+        if (output.IsEmpty) throw new ArgumentException("Output is empty", nameof(output));
+
+        fixed (byte* inPtr = input)
+        fixed (byte* outPtr = output)
+        {
+            IntPtr ctx = ZstdInterop.ZSTD_createDCtx();
+            if (ctx == IntPtr.Zero)
+                throw new InvalidOperationException("Failed to create decompression context");
+
+            try
+            {
+                var result = ZstdInterop.ZSTD_decompress_usingDDict(
+                    ctx,
+                    (IntPtr)outPtr, (nuint)output.Length,
+                    (IntPtr)inPtr, (nuint)input.Length,
+                    dict.Handle);
+
+                CheckResult(result, "ZSTD_decompress_usingDDict");
+                return (int)result;
+            }
+            finally
+            {
+                ZstdInterop.ZSTD_freeDCtx(ctx);
+            }
+        }
     }
 }

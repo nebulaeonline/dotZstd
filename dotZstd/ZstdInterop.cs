@@ -88,4 +88,52 @@ public static class ZstdInterop
 
     [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
     public static extern nuint ZSTD_freeDStream(IntPtr dstream);
+
+    // Compression dictionary
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr ZSTD_createCDict(
+        IntPtr dictBuffer, nuint dictSize, int compressionLevel);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern nuint ZSTD_compress_usingCDict(
+        IntPtr ctx,
+        IntPtr dst, nuint dstCapacity,
+        IntPtr src, nuint srcSize,
+        IntPtr cdict);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void ZSTD_freeCDict(IntPtr cdict);
+
+    // Decompression dictionary
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr ZSTD_createDDict(
+        IntPtr dictBuffer, nuint dictSize);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern nuint ZSTD_decompress_usingDDict(
+        IntPtr ctx,
+        IntPtr dst, nuint dstCapacity,
+        IntPtr src, nuint srcSize,
+        IntPtr ddict);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern void ZSTD_freeDDict(IntPtr ddict);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr ZSTD_createCCtx();
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern nuint ZSTD_freeCCtx(IntPtr cctx);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr ZSTD_createDCtx();
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern nuint ZSTD_freeDCtx(IntPtr dctx);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern nuint ZSTD_initCStream_usingCDict(IntPtr cstream, IntPtr cdict);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern nuint ZSTD_initDStream_usingDDict(IntPtr dstream, IntPtr ddict);
 }

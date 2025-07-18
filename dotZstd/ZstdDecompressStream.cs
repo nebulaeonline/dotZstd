@@ -19,6 +19,17 @@ public sealed class ZstdDecompressStream : IDisposable
         Check(initResult, "ZSTD_initDStream");
     }
 
+    public ZstdDecompressStream(ZstdDecompressionDictionary dict)
+    {
+        ZstdLibrary.Init();
+        _dstream = ZstdInterop.ZSTD_createDStream();
+        if (_dstream == IntPtr.Zero)
+            throw new InvalidOperationException("Failed to allocate ZSTD_DStream");
+
+        var initResult = ZstdInterop.ZSTD_initDStream_usingDDict(_dstream, dict.Handle);
+        Check(initResult, "ZSTD_initDStream_usingDDict");
+    }
+
     /// <summary>
     /// Decompresses the data from the input buffer into the output buffer.
     /// </summary>

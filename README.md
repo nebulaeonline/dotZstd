@@ -14,6 +14,11 @@ Tests are included and available in the Github repo.
 
 ## Features
 
+- Byte and Span APIs for compression and decompression.
+- Streaming support for compression and decompression.
+- Dictionary-based compression and decompression.
+- Streaming dictionary support.
+
 - **Cross-platform**: Works on Windows, Linux, and macOS (x64 & Apple Silicon).
 - **High performance**: Optimized for speed, leveraging native SIMD-enabled code.
 - **Easy to use**: Simple API for compression and decompression.
@@ -36,8 +41,6 @@ Using the byte API:
 
 using nebulae.dotZstd;
 
-Zstd.Init();
-
 byte[] input = Encoding.UTF8.GetBytes("some highly compressible text...");
 int level = 3;
 
@@ -54,8 +57,6 @@ Using the Span API:
 ```csharp
 
 using nebulae.dotZstd;
-
-Zstd.Init();
 
 ReadOnlySpan<byte> input = "some highly compressible text..."u8;
 Span<byte> compressed = new byte[Zstd.GetMaxCompressedSize(input.Length)];
@@ -74,8 +75,6 @@ Streaming Compression:
 ```csharp
 
 using nebulae.dotZstd;
-
-Zstd.Init();
 
 var chunks = new[]
 {
@@ -111,6 +110,77 @@ int outputWritten = decompressor.Decompress(compressed, output, out consumedFina
 
 string result = Encoding.UTF8.GetString(output[..outputWritten]);
 Console.WriteLine(result); // chunk-1-chunk-2-chunk-3
+
+```
+
+Compression with Dictionary:
+
+```csharp
+
+using nebulae.dotZstd;
+
+// Dictionary source data (could be trained)
+var dict = Encoding.UTF8.GetBytes("chunk-1-chunk-2-chunk-3");
+
+// Data to compress
+var input = Encoding.UTF8.GetBytes("chunk-1-chunk-2-chunk-3");
+
+// Allocate output buffers
+var compressed = new byte[Zstd.GetMaxCompressedSize(input.Length)];
+var decompressed = new byte[input.Length];
+
+// Create compression and decompression dictionary wrappers
+using var cdict = new ZstdCompressionDictionary(dict, compressionLevel: 3);
+using var ddict = new ZstdDecompressionDictionary(dict);
+
+// Compress using dictionary
+int compressedSize = Zstd.CompressWithDict(input, compressed, cdict);
+
+// Decompress using dictionary
+int decompressedSize = Zstd.DecompressWithDict(compressed.AsSpan(0, compressedSize), decompressed, ddict);
+
+// Get the original string back
+string result = Encoding.UTF8.GetString(decompressed.AsSpan(0, decompressedSize));
+Console.WriteLine(result); // "chunk-1-chunk-2-chunk-3"
+
+```
+
+Streaming Compression with Dictionary:
+
+```csharp
+
+using nebulae.dotZstd;
+
+// Dictionary source data
+var dict = Encoding.UTF8.GetBytes("chunk-1-chunk-2-chunk-3");
+var input = Encoding.UTF8.GetBytes("chunk-1-chunk-2-chunk-3");
+
+// Wrap dictionaries
+using var cdict = new ZstdCompressionDictionary(dict, 3);
+using var ddict = new ZstdDecompressionDictionary(dict);
+
+// Set up streaming compression
+using var compressor = new ZstdCompressStream(cdict);
+using var compressedStream = new MemoryStream();
+Span<byte> buffer = stackalloc byte[256];
+
+// Compress input
+int written = compressor.Compress(input, buffer, out var consumed);
+compressedStream.Write(buffer[..written]);
+
+// Finish stream and collect remaining output
+written = compressor.Finish(buffer);
+compressedStream.Write(buffer[..written]);
+
+byte[] compressed = compressedStream.ToArray();
+
+// Decompress stream
+using var decompressor = new ZstdDecompressStream(ddict);
+byte[] output = new byte[input.Length];
+written = decompressor.Decompress(compressed, output, out var fullyConsumed);
+
+string result = Encoding.UTF8.GetString(output, 0, written);
+Console.WriteLine(result); // "chunk-1-chunk-2-chunk-3"
 
 ```
 
