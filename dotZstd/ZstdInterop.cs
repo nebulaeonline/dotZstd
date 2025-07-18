@@ -1,0 +1,91 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace nebulae.dotZstd;
+
+[StructLayout(LayoutKind.Sequential)]
+public struct ZstdInBuffer
+{
+    public IntPtr src;      // void*
+    public nuint size;      // size_t
+    public nuint pos;       // size_t
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public struct ZstdOutBuffer
+{
+    public IntPtr dst;      // void*
+    public nuint size;      // size_t
+    public nuint pos;       // size_t
+}
+
+public static class ZstdInterop
+{
+    static ZstdInterop()
+    {
+        ZstdLibrary.Init();
+    }
+
+    private const string LIB = "libzstd";
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ZSTD_compress")]
+    public static extern nuint Compress(
+        ref byte dst, nuint dstCapacity,
+        ref byte src, nuint srcSize,
+        int compressionLevel);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ZSTD_decompress")]
+    public static extern nuint Decompress(
+        ref byte dst, nuint dstCapacity,
+        ref byte src, nuint compressedSize);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ZSTD_compressBound")]
+    public static extern nuint GetCompressBound(nuint srcSize);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ZSTD_getFrameContentSize")]
+    public static extern ulong GetDecompressedSize(ref byte src, nuint srcSize);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ZSTD_isError")]
+    public static extern uint IsError(nuint code);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ZSTD_getErrorName")]
+    public static extern IntPtr GetErrorName(nuint code);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr ZSTD_createCStream();
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern nuint ZSTD_initCStream(IntPtr cstream, int compressionLevel);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern nuint ZSTD_compressStream(
+        IntPtr cstream, ref ZstdOutBuffer output, ref ZstdInBuffer input);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern nuint ZSTD_flushStream(
+        IntPtr cstream, ref ZstdOutBuffer output);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern nuint ZSTD_endStream(
+        IntPtr cstream, ref ZstdOutBuffer output);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern nuint ZSTD_freeCStream(IntPtr cstream);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr ZSTD_createDStream();
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern nuint ZSTD_initDStream(IntPtr dstream);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern nuint ZSTD_decompressStream(
+        IntPtr dstream, ref ZstdOutBuffer output, ref ZstdInBuffer input);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern nuint ZSTD_freeDStream(IntPtr dstream);
+}

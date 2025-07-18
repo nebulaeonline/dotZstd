@@ -1,0 +1,31 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net8.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <RootNamespace>nebulae.dotZstd</RootNamespace>
+        <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+        <PackageId>nebulae.dotZstd</PackageId>
+        <Version>0.1.0</Version>
+        <Authors>Robert C. Horvath III</Authors>
+        <Company>Nebulae Foundation LLC</Company>
+        <Description>High-performance cross-platform wrapper for Zstandard compression, including streaming support, with native SIMD-optimized libzstd bindings and Span-friendly .NET APIs.</Description>
+        <PackageTags>zstd compression AVX2 neon span decompression</PackageTags>
+        <RepositoryUrl>https://github.com/nebulaeonline/dotZstd</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <PackageProjectUrl>https://github.com/nebulaeonline/dotZstd</PackageProjectUrl>
+        <IncludeSymbols>false</IncludeSymbols>
+        <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+        <Copyright>Copyright © 2025 Nebulae Foundation LLC </Copyright>
+        <PackageReadmeFile>docs\README.md</PackageReadmeFile>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <None Include="..\README.md" Pack="true" PackagePath="docs">
+            <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+        </None>
+        <None Include="runtimes\**\native\*" Pack="true" PackagePath="runtimes\" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+</Project>
