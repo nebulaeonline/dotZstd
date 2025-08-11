@@ -203,14 +203,14 @@ var samples = new ReadOnlyMemory<byte>[]
 };
 
 // 2) Pick a dictionary size. A solid rule of thumb: ~1% of total sample bytes.
-//    Keep it within 8–131 KiB for most workloads.
+//    Keep it within 8-131 KiB for most workloads.
 int total = samples.Sum(s => s.Length);
 int dictCapacity = Math.Clamp(total / 100, 8 * 1024, 128 * 1024);
 
 // 3) Train
 byte[] dict = ZstdDictTrainer.Train(samples, (nuint)dictCapacity);
 
-// 4) Check it has a dictID (non-zero means “looks valid”)
+// 4) Check it has a dictID (non-zero means "looks valid")
 uint dictId = Zstd.GetDictId(dict);
 Console.WriteLine($"dict size={dict.Length} bytes, id={dictId}");
 
@@ -277,7 +277,7 @@ var samples = new ReadOnlyMemory<byte>[]
     // ... add more samples from your real traffic or files
 };
 
-// Choose capacity (often 16–64 KiB for small/med corpora)
+// Choose capacity (often 16-64 KiB for small/med corpora)
 int dictCapacity = 32 * 1024;
 
 var fastOpts = new ZstdFastCoverOptions(
