@@ -7,11 +7,11 @@
         <RootNamespace>nebulae.dotZstd</RootNamespace>
         <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
         <PackageId>nebulae.dotZstd</PackageId>
-        <Version>0.1.2</Version>
+        <Version>0.2.0</Version>
         <Authors>Robert C. Horvath III</Authors>
         <Company>Nebulae Foundation LLC</Company>
         <Description>High-performance cross-platform wrapper for Zstandard compression, including streaming support, with native SIMD-optimized libzstd bindings and Span-friendly .NET APIs.</Description>
-        <PackageTags>zstd compression AVX2 neon span decompression</PackageTags>
+        <PackageTags>zstd zstandard compression AVX2 neon span dictionary training decompression</PackageTags>
         <RepositoryUrl>https://github.com/nebulaeonline/dotZstd</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>

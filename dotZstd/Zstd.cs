@@ -9,6 +9,11 @@ namespace nebulae.dotZstd;
 
 public static class Zstd
 {
+    public static int RecommendedCStreamInSize() => checked((int)ZstdInterop.ZSTD_CStreamInSize());
+    public static int RecommendedCStreamOutSize() => checked((int)ZstdInterop.ZSTD_CStreamOutSize());
+    public static int RecommendedDStreamInSize() => checked((int)ZstdInterop.ZSTD_DStreamInSize());
+    public static int RecommendedDStreamOutSize() => checked((int)ZstdInterop.ZSTD_DStreamOutSize());
+
     /// <summary>
     /// Compresses the input data using the specified compression level and writes the compressed data to the output
     /// buffer.
@@ -33,6 +38,13 @@ public static class Zstd
             compressionLevel);
 
         return CheckResult(result, "Compress");
+    }
+
+    public static int CompressWith(byte[] payload, byte[] dict, int clevel)
+    {
+        using var cdict = new ZstdCompressionDictionary(dict, clevel);
+        var buf = new byte[Zstd.GetMaxCompressedSize(payload.Length)];
+        return Zstd.CompressWithDict(payload, buf, cdict);
     }
 
     /// <summary>

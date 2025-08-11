@@ -80,21 +80,26 @@ public sealed class ZstdCompressStream : IDisposable
     /// important to check the return value to determine how many bytes were actually written.</remarks>
     /// <param name="output">The span of bytes where the flushed data will be written. Must be large enough to hold the data.</param>
     /// <returns>The number of bytes written to the output span.</returns>
-    public int Flush(Span<byte> output)
+    public unsafe int Flush(Span<byte> output)
     {
         EnsureNotDisposed();
 
-        var outBuffer = new ZstdOutBuffer
+        if (output.IsEmpty)
+            throw new ArgumentException("Output is empty", nameof(output));
+
+        fixed (byte* outPtr = output)
         {
-            dst = MemoryMarshal.GetReference(output),
-            size = (nuint)output.Length,
-            pos = 0
-        };
+            var outBuffer = new ZstdOutBuffer
+            {
+                dst = (IntPtr)outPtr,
+                size = (nuint)output.Length,
+                pos = 0
+            };
 
-        var result = ZstdInterop.ZSTD_flushStream(_cstream, ref outBuffer);
-        Check(result, "ZSTD_flushStream");
-
-        return (int)outBuffer.pos;
+            var result = ZstdInterop.ZSTD_flushStream(_cstream, ref outBuffer);
+            Check(result, "ZSTD_flushStream");
+            return (int)outBuffer.pos;
+        }
     }
 
     /// <summary>

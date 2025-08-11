@@ -7,6 +7,28 @@ public class ZstdTests
 {
     private static readonly byte[] Plaintext = Encoding.UTF8.GetBytes("The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. The quick brown fox...");
 
+    // Small, repetitive-ish corpus to make dictionary training effective
+    private static readonly ReadOnlyMemory<byte>[] Corpus =
+    {
+        Encoding.UTF8.GetBytes("GET /api/orders/12345?expand=items&currency=USD\n"),
+        Encoding.UTF8.GetBytes("GET /api/orders/12346?expand=items&currency=USD\n"),
+        Encoding.UTF8.GetBytes("GET /api/orders/12347?expand=items&currency=USD\n"),
+        Encoding.UTF8.GetBytes("POST /api/orders {\"customerId\":42,\"currency\":\"USD\",\"items\":[1,2,3]}\n"),
+        Encoding.UTF8.GetBytes("PATCH /api/orders/12345 {\"status\":\"confirmed\"}\n"),
+        Encoding.UTF8.GetBytes("GET /api/customers/42?include=orders\n"),
+        Encoding.UTF8.GetBytes("GET /static/config?region=us-east-1&rev=abcdef\n"),
+        Encoding.UTF8.GetBytes("inventory: sku=ABC-123 qty=100 loc=us-east-1\n"),
+        Encoding.UTF8.GetBytes("inventory: sku=ABC-124 qty=95  loc=us-east-1\n"),
+        Encoding.UTF8.GetBytes("inventory: sku=ABC-125 qty=87  loc=us-east-1\n"),
+    };
+
+    private static readonly byte[] Payload =
+        Encoding.UTF8.GetBytes(
+            "GET /api/orders/12345?expand=items&currency=USD\n" +
+            "GET /api/orders/12346?expand=items&currency=USD\n" +
+            "GET /api/customers/42?include=orders\n" +
+            "inventory: sku=ABC-123 qty=100 loc=us-east-1\n");
+
     [Fact]
     public void CompressDecompress_ByteArray_Roundtrip()
     {
@@ -367,5 +389,120 @@ public class ZstdTests
 
         string result = Encoding.UTF8.GetString(output, 0, written);
         Assert.Equal("chunk-1-chunk-2-chunk-3", result);
+    }
+
+    [Fact]
+    public void TrainBasic_ProducesValidDictionaryId_AndImprovesRatio()
+    {
+        // 1) Train a basic dictionary (~1% of corpus size, capped to 64 KB here)
+        int total = Corpus.Sum(s => s.Length);
+        int dictCap = Math.Min(64 * 1024, Math.Max(8 * 1024, total / 100));
+        byte[] dict = ZstdDictTrainer.Train(Corpus, (nuint)dictCap);
+
+        // 2) Dict ID should be set (non-zero)
+        uint dictId = ZstdDictTrainer.GetDictId(dict);
+        Assert.True(dictId != 0u);
+
+        // 3) Compare compression ratio vs. no-dict
+        int max = Zstd.GetMaxCompressedSize(Payload.Length);
+        var noDict = new byte[max];
+        int noDictSize = Zstd.Compress(Payload, noDict, 3);
+
+        using var cdict = new ZstdCompressionDictionary(dict, 3);
+        var withDict = new byte[max];
+        int withDictSize = Zstd.CompressWithDict(Payload, withDict, cdict);
+
+        // Should generally be smaller with a trained dict; allow some slack.
+        Assert.True(withDictSize < noDictSize, $"withDict={withDictSize} noDict={noDictSize}");
+
+        // 4) Round-trip check using dict
+        using var ddict = new ZstdDecompressionDictionary(dict);
+        var round = new byte[Payload.Length];
+        int roundSize = Zstd.DecompressWithDict(withDict.AsSpan(0, withDictSize), round, ddict);
+        Assert.Equal(Payload, round.AsSpan(0, roundSize).ToArray());
+    }
+
+    [Fact]
+    public void TrainFastCover_FinalizeDictionary_Works_EndToEnd()
+    {
+        // 1) Train seed via fastCover
+        var fastOpts = new ZstdFastCoverOptions(
+            DictCapacity: 16 * 1024,
+            K: 200, D: 8, Steps: 4, NbThreads: 0, SplitPoint: 75, Accel: 1, ShrinkDict: true);
+
+        byte[] seed = ZstdDictTrainer.TrainFastCover(Corpus, fastOpts);
+        Assert.NotEmpty(seed);
+        Assert.True(ZstdDictTrainer.GetDictId(seed) != 0u);
+
+        // 2) Finalize at same capacity & level
+        var finOpts = new ZstdFinalizeOptions(
+            DictCapacity: seed.Length,
+            CompressionLevel: 3,
+            NotificationLevel: 0,
+            DictID: ZstdDictTrainer.GetDictId(seed));
+
+        byte[] finalDict = ZstdDictTrainer.FinalizeDictionary(seed, Corpus, finOpts);
+        Assert.NotEmpty(finalDict);
+        Assert.True(ZstdDictTrainer.GetDictId(finalDict) != 0u);
+
+        // 3) Measure seed vs final, pick best
+        int max = Zstd.GetMaxCompressedSize(Payload.Length);
+
+        using var cdictSeed = new ZstdCompressionDictionary(seed, 3);
+        var tmp = new byte[max];
+        int sizeSeed = Zstd.CompressWithDict(Payload, tmp, cdictSeed);
+
+        using var cdictFinal = new ZstdCompressionDictionary(finalDict, 3);
+        int sizeFinal = Zstd.CompressWithDict(Payload, tmp, cdictFinal);
+
+        int bestSize = Math.Min(sizeSeed, sizeFinal);
+        var bestDict = sizeFinal <= sizeSeed ? finalDict : seed;
+
+        // 4) Sanity: best must beat no-dict baseline
+        var noDictBuf = new byte[max];
+        int noDictSize = Zstd.Compress(Payload, noDictBuf, 3);
+        Assert.True(bestSize < noDictSize, $"best={bestSize} noDict={noDictSize}");
+
+        // 5) Round-trip using the better dict (compress inline, then decompress)
+        using var cdictBest = new ZstdCompressionDictionary(bestDict, 3);
+        var bestCompressed = new byte[max];
+        int bestCompressedSize = Zstd.CompressWithDict(Payload, bestCompressed, cdictBest);
+
+        using var ddictBest = new ZstdDecompressionDictionary(bestDict);
+        var outBuf = new byte[Payload.Length];
+        int outLen = Zstd.DecompressWithDict(bestCompressed.AsSpan(0, bestCompressedSize), outBuf, ddictBest);
+
+        Assert.Equal(Payload, outBuf.AsSpan(0, outLen).ToArray());
+    }
+
+    [Fact]
+    public void Streaming_With_TrainedDictionary_Roundtrips()
+    {
+        // Train a small dict quickly
+        byte[] dict = ZstdDictTrainer.Train(Corpus, (nuint)(16 * 1024));
+        using var cdict = new ZstdCompressionDictionary(dict, 3);
+        using var ddict = new ZstdDecompressionDictionary(dict);
+
+        // Compress stream
+        using var compressor = new ZstdCompressStream(cdict);
+        using var blob = new MemoryStream();
+        Span<byte> buf = stackalloc byte[256];
+
+        bool consumed;
+        int w = compressor.Compress(Payload, buf, out consumed);
+        Assert.True(consumed);
+        blob.Write(buf[..w]);
+
+        w = compressor.Finish(buf);
+        blob.Write(buf[..w]);
+
+        var compressed = blob.ToArray();
+
+        // Decompress stream with dict
+        using var decompressor = new ZstdDecompressStream(ddict);
+        var outBuf = new byte[Payload.Length];
+        int outW = decompressor.Decompress(compressed, outBuf, out var allUsed);
+        Assert.True(allUsed);
+        Assert.Equal(Payload, outBuf.AsSpan(0, outW).ToArray());
     }
 }

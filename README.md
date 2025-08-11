@@ -18,6 +18,7 @@ Tests are included and available in the Github repo.
 - Streaming support for compression and decompression.
 - Dictionary-based compression and decompression.
 - Streaming dictionary support.
+- Can use Cover and FastCover dictionary training.
 
 - **Cross-platform**: Works on Windows, Linux, and macOS (x64 & Apple Silicon).
 - **High performance**: Optimized for speed, leveraging native SIMD-enabled code.
@@ -181,6 +182,116 @@ written = decompressor.Decompress(compressed, output, out var fullyConsumed);
 
 string result = Encoding.UTF8.GetString(output, 0, written);
 Console.WriteLine(result); // "chunk-1-chunk-2-chunk-3"
+
+```
+
+Training a Dictionary:
+
+```csharp
+
+using nebulae.dotZstd;
+using System.Text;
+
+// 1) Prepare your samples (each item is one sample buffer)
+var samples = new ReadOnlyMemory<byte>[]
+{
+    Encoding.UTF8.GetBytes("GET /api/orders/12345?expand=items&currency=USD\n"),
+    Encoding.UTF8.GetBytes("GET /api/orders/12346?expand=items&currency=USD\n"),
+    Encoding.UTF8.GetBytes("GET /api/customers/42?include=orders\n"),
+    Encoding.UTF8.GetBytes("inventory: sku=ABC-123 qty=100 loc=us-east-1\n"),
+    // ... add more samples from your real traffic or files
+};
+
+// 2) Pick a dictionary size. A solid rule of thumb: ~1% of total sample bytes.
+//    Keep it within 8–131 KiB for most workloads.
+int total = samples.Sum(s => s.Length);
+int dictCapacity = Math.Clamp(total / 100, 8 * 1024, 128 * 1024);
+
+// 3) Train
+byte[] dict = ZstdDictTrainer.Train(samples, (nuint)dictCapacity);
+
+// 4) Check it has a dictID (non-zero means “looks valid”)
+uint dictId = Zstd.GetDictId(dict);
+Console.WriteLine($"dict size={dict.Length} bytes, id={dictId}");
+
+```
+Using created dictionary (one shot):
+
+```csharp
+
+var payload = Encoding.UTF8.GetBytes("GET /api/orders/12345?expand=items&currency=USD\n");
+
+using var cdict = new ZstdCompressionDictionary(dict, compressionLevel: 3);
+using var ddict = new ZstdDecompressionDictionary(dict);
+
+var compressed = new byte[Zstd.GetMaxCompressedSize(payload.Length)];
+int csize = Zstd.CompressWithDict(payload, compressed, cdict);
+
+var decompressed = new byte[payload.Length];
+int dsize = Zstd.DecompressWithDict(compressed.AsSpan(0, csize), decompressed, ddict);
+
+Console.WriteLine(Encoding.UTF8.GetString(decompressed.AsSpan(0, dsize)));
+
+```
+
+Using the created dictionary (streaming):
+```csharp
+
+using var cdict = new ZstdCompressionDictionary(dict, 3);
+using var ddict = new ZstdDecompressionDictionary(dict);
+
+using var cstream = new ZstdCompressStream(cdict);
+using var dstream = new ZstdDecompressStream(ddict);
+
+var input = Encoding.UTF8.GetBytes("chunk-1-chunk-2-chunk-3");
+Span<byte> buf = stackalloc byte[256];
+
+// compress
+bool consumed;
+int written = cstream.Compress(input, buf, out consumed);
+using var ms = new MemoryStream();
+ms.Write(buf[..written]);
+written = cstream.Finish(buf);
+ms.Write(buf[..written]);
+
+// decompress
+var outBuf = new byte[input.Length];
+bool allUsed;
+int outWritten = dstream.Decompress(ms.ToArray(), outBuf, out allUsed);
+
+```
+
+Cover / FastCover dictionary training:
+
+```csharp
+
+using nebulae.dotZstd;
+using System.Text;
+
+var samples = new ReadOnlyMemory<byte>[]
+{
+    Encoding.UTF8.GetBytes("GET /api/orders/12345?expand=items&currency=USD\n"),
+    Encoding.UTF8.GetBytes("GET /api/orders/12346?expand=items&currency=USD\n"),
+    Encoding.UTF8.GetBytes("GET /api/customers/42?include=orders\n"),
+    Encoding.UTF8.GetBytes("inventory: sku=ABC-123 qty=100 loc=us-east-1\n"),
+    // ... add more samples from your real traffic or files
+};
+
+// Choose capacity (often 16–64 KiB for small/med corpora)
+int dictCapacity = 32 * 1024;
+
+var fastOpts = new ZstdFastCoverOptions(
+    DictCapacity: dictCapacity,
+    K: 200,         // segment size
+    D: 8,           // dmer size
+    Steps: 4,
+    NbThreads: 0,   // 0 = single-thread (deterministic)
+    SplitPoint: 75, // % of samples used for training
+    Accel: 1,       // >=1
+    ShrinkDict: true);
+
+byte[] seedDict = ZstdDictTrainer.TrainFastCover(samples, fastOpts);
+Console.WriteLine($"fastCover seed size={seedDict.Length}, id={Zstd.GetDictId(seedDict)}");
 
 ```
 

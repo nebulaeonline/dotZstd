@@ -73,6 +73,12 @@ public static class ZstdInterop
     public static extern nuint ZSTD_endStream(
         IntPtr cstream, ref ZstdOutBuffer output);
 
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ZSTD_CStreamInSize")]
+    public static extern nuint ZSTD_CStreamInSize();
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ZSTD_CStreamOutSize")]
+    public static extern nuint ZSTD_CStreamOutSize();
+
     [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
     public static extern nuint ZSTD_freeCStream(IntPtr cstream);
 
@@ -85,6 +91,12 @@ public static class ZstdInterop
     [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
     public static extern nuint ZSTD_decompressStream(
         IntPtr dstream, ref ZstdOutBuffer output, ref ZstdInBuffer input);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ZSTD_DStreamInSize")]
+    public static extern nuint ZSTD_DStreamInSize();
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ZSTD_DStreamOutSize")]
+    public static extern nuint ZSTD_DStreamOutSize();
 
     [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
     public static extern nuint ZSTD_freeDStream(IntPtr dstream);
@@ -136,4 +148,19 @@ public static class ZstdInterop
 
     [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
     public static extern nuint ZSTD_initDStream_usingDDict(IntPtr dstream, IntPtr ddict);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ZDICT_trainFromBuffer")]
+    public static extern nuint ZDICT_trainFromBuffer(
+        IntPtr dictBuffer, nuint dictCapacity,
+        IntPtr samplesBuffer, IntPtr samplesSizes, uint nbSamples);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ZDICT_isError")]
+    public static extern uint ZDICT_isError(nuint code);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ZDICT_getErrorName")]
+    public static extern IntPtr ZDICT_getErrorName(nuint code);
+
+    // (Optional but useful right away)
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ZSTD_getDictID_fromDict")]
+    public static extern uint ZSTD_getDictID_fromDict(IntPtr dict, nuint dictSize);
 }
