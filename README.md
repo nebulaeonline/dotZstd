@@ -6,7 +6,7 @@ Provides Span-friendly, zero-copy APIs for compression, decompression, and full 
 
 Ships as a native library (Windows, Linux, macOS) with direct bindings for low-level interop.
 
-Tests are included and available in the Github repo.
+Tests and a demo are included and available in the Github repo.
 
 [![NuGet](https://img.shields.io/nuget/v/nebulae.dotZstd.svg)](https://www.nuget.org/packages/nebulae.dotZstd)
 
@@ -18,7 +18,8 @@ Tests are included and available in the Github repo.
 - Streaming support for compression and decompression.
 - Dictionary-based compression and decompression.
 - Streaming dictionary support.
-- Can use Cover and FastCover dictionary training.
+- Can use FastCover dictionary training.
+- Additional features like checksum, multi-threading, and more.
 
 - **Cross-platform**: Works on Windows, Linux, and macOS (x64 & Apple Silicon).
 - **High performance**: Optimized for speed, leveraging native SIMD-enabled code.
@@ -261,7 +262,7 @@ int outWritten = dstream.Decompress(ms.ToArray(), outBuf, out allUsed);
 
 ```
 
-Cover / FastCover dictionary training:
+FastCover dictionary training:
 
 ```csharp
 

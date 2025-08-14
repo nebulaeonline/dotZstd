@@ -1,18 +1,88 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading.Tasks;
+﻿using System.Runtime.InteropServices;
 
 namespace nebulae.dotZstd;
 
 public static class Zstd
 {
+    /// <summary>
+    /// Retrieves the version string of the Zstandard library.
+    /// </summary>
+    /// <remarks>This method provides the version information of the underlying Zstandard library being used.
+    /// The returned string is useful for logging, diagnostics, or ensuring compatibility with specific library
+    /// versions.</remarks>
+    /// <returns>A string representing the version of the Zstandard library in the format "major.minor.patch".</returns>
+    public static string VersionString() => Marshal.PtrToStringAnsi(ZstdInterop.ZSTD_versionString())!;
+
+    /// <summary>
+    /// Retrieves the version number of the Zstandard library.
+    /// </summary>
+    /// <remarks>This method provides the version of the underlying Zstandard library being used. It can be
+    /// useful for ensuring compatibility or debugging purposes when working with Zstandard compression and
+    /// decompression operations.</remarks>
+    /// <returns>An unsigned integer representing the version number of the Zstandard library. The version number is encoded as a
+    /// single integer, where the major, minor, and patch versions are combined (e.g., version 1.5.2 would be
+    /// represented as 10502).</returns>
+    public static uint VersionNumber() => ZstdInterop.ZSTD_versionNumber();
+
+    /// <summary>
+    /// Retrieves the recommended input buffer size for compression streams.
+    /// </summary>
+    /// <remarks>Use this method to allocate appropriately sized buffers for compression operations.
+    /// Allocating buffers of this size helps avoid performance degradation due to suboptimal buffer sizes.</remarks>
+    /// <returns>The recommended size, in bytes, for the input buffer used in compression streams. This value is determined by
+    /// the underlying compression library and ensures optimal performance.</returns>
     public static int RecommendedCStreamInSize() => checked((int)ZstdInterop.ZSTD_CStreamInSize());
+    
+    /// <summary>
+    /// Retrieves the recommended output buffer size for streaming compression operations.
+    /// </summary>
+    /// <remarks>Use this method to allocate an appropriately sized buffer for streaming compression. The
+    /// returned size is designed to minimize memory usage while maintaining efficient compression.</remarks>
+    /// <returns>The recommended size, in bytes, for the output buffer used during streaming compression. This value is
+    /// determined by the underlying compression library and ensures optimal performance.</returns>
     public static int RecommendedCStreamOutSize() => checked((int)ZstdInterop.ZSTD_CStreamOutSize());
+    
+    /// <summary>
+    /// Retrieves the recommended input buffer size for a decompression stream.
+    /// </summary>
+    /// <remarks>This method provides the optimal buffer size for efficient decompression operations. Using a
+    /// buffer of this size can improve performance and reduce memory overhead.</remarks>
+    /// <returns>The recommended size, in bytes, for the input buffer used in decompression streams. This value is determined by
+    /// the underlying Zstandard library.</returns>
     public static int RecommendedDStreamInSize() => checked((int)ZstdInterop.ZSTD_DStreamInSize());
+
+    /// <summary>
+    /// Gets the recommended output buffer size for a decompression stream.
+    /// </summary>
+    /// <remarks>Use this method to allocate an appropriately sized buffer for efficient decompression when
+    /// working with Zstandard streams. The recommended size ensures optimal performance and compatibility with the
+    /// Zstandard decompression API.</remarks>
+    /// <returns>The recommended size, in bytes, for the output buffer used in decompression streams. This value is determined by
+    /// the underlying Zstandard library.</returns>
     public static int RecommendedDStreamOutSize() => checked((int)ZstdInterop.ZSTD_DStreamOutSize());
+
+    /// <summary>
+    /// Returns the dictionary ID embedded in a Zstandard dictionary blob (0 if none).
+    /// </summary>
+    /// <param name="dictionary">Raw dictionary bytes.</param>
+    public static unsafe uint GetDictId(ReadOnlySpan<byte> dictionary)
+    {
+        if (dictionary.IsEmpty) return 0;
+        fixed (byte* p = dictionary)
+        {
+            return ZstdInterop.ZSTD_getDictID_fromDict((IntPtr)p, (nuint)dictionary.Length);
+        }
+    }
+
+    /// <summary>
+    /// Extracts the dictionary ID from a Zstandard-compressed frame.
+    /// </summary>
+    /// <remarks>This method is useful for determining whether a specific dictionary was used during
+    /// compression and for identifying the dictionary required for decompression.</remarks>
+    /// <param name="frame">A read-only span of bytes representing the Zstandard-compressed frame.</param>
+    /// <returns>The dictionary ID used to compress the frame, or <see langword="0"/> if no dictionary was used.</returns>
+    public static uint GetDictIdFromFrame(ReadOnlySpan<byte> frame) =>
+        ZstdInterop.ZSTD_getDictID_fromFrame(ref MemoryMarshal.GetReference(frame), (nuint)frame.Length);
 
     /// <summary>
     /// Compresses the input data using the specified compression level and writes the compressed data to the output
@@ -40,6 +110,17 @@ public static class Zstd
         return CheckResult(result, "Compress");
     }
 
+    /// <summary>
+    /// Compresses the specified payload using the provided dictionary and compression level.
+    /// </summary>
+    /// <remarks>This method uses a Zstandard compression dictionary to optimize compression for data with
+    /// recurring patterns. Ensure that the dictionary is appropriate for the type of data being compressed.</remarks>
+    /// <param name="payload">The data to be compressed. Cannot be null.</param>
+    /// <param name="dict">The dictionary to use for compression. This improves compression efficiency for similar data patterns. Cannot be
+    /// null.</param>
+    /// <param name="clevel">The compression level to apply. Must be a positive integer, where higher values typically result in better
+    /// compression at the cost of performance.</param>
+    /// <returns>The size of the compressed data, in bytes.</returns>
     public static int CompressWith(byte[] payload, byte[] dict, int clevel)
     {
         using var cdict = new ZstdCompressionDictionary(dict, clevel);
@@ -240,5 +321,20 @@ public static class Zstd
                 ZstdInterop.ZSTD_freeDCtx(ctx);
             }
         }
+    }
+
+    /// <summary>
+    /// Determines the compressed size of a Zstandard frame within the provided data.
+    /// </summary>
+    /// <param name="data">A read-only span of bytes containing the data to analyze. The span must contain  a valid Zstandard frame.</param>
+    /// <returns>The size, in bytes, of the compressed Zstandard frame.</returns>
+    /// <exception cref="InvalidOperationException">Thrown if the operation fails, such as when the provided data does not contain  a valid Zstandard frame.</exception>
+    public static int FindFrameCompressedSize(ReadOnlySpan<byte> data)
+    {
+        var n = ZstdInterop.ZSTD_findFrameCompressedSize(
+            ref MemoryMarshal.GetReference(data), (nuint)data.Length);
+        if (ZstdInterop.IsError(n) != 0)
+            throw new InvalidOperationException("findFrameCompressedSize failed");
+        return checked((int)n);
     }
 }

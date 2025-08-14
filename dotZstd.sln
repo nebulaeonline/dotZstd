@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
-VisualStudioVersion = 17.14.36310.24 d17.14
+VisualStudioVersion = 17.14.36310.24
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "dotZstd", "dotZstd\dotZstd.csproj", "{6620A6AB-C6AB-4F7C-8007-83F22872C09B}"
 EndProject
@@ -13,6 +13,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 	EndProjectSection
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ZstdTests", "ZstdTests\ZstdTests.csproj", "{A9D093B4-9A8C-4489-AE4E-542AE62B32E0}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ZstdDemo", "ZstdDemo\ZstdDemo.csproj", "{BF9F1328-5D01-47B2-9681-01F3A56F43F4}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -28,6 +30,10 @@ Global
 		{A9D093B4-9A8C-4489-AE4E-542AE62B32E0}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A9D093B4-9A8C-4489-AE4E-542AE62B32E0}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{A9D093B4-9A8C-4489-AE4E-542AE62B32E0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BF9F1328-5D01-47B2-9681-01F3A56F43F4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BF9F1328-5D01-47B2-9681-01F3A56F43F4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BF9F1328-5D01-47B2-9681-01F3A56F43F4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BF9F1328-5D01-47B2-9681-01F3A56F43F4}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

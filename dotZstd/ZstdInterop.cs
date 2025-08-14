@@ -23,6 +23,22 @@ public struct ZstdOutBuffer
     public nuint pos;       // size_t
 }
 
+public enum ZSTD_cParameter : int
+{
+    ZSTD_c_compressionLevel = 100,
+    ZSTD_c_checksumFlag = 200,
+    ZSTD_c_nbWorkers = 400,
+    ZSTD_c_jobSize = 401,
+    ZSTD_c_overlapLog = 402,
+    ZSTD_c_longDistanceMatching = 1002
+}
+
+public enum ZSTD_dParameter : int
+{
+    ZSTD_d_stableOutBuffer = 400,
+    ZSTD_d_refMultipleDDicts = 500
+}
+
 public static class ZstdInterop
 {
     static ZstdInterop()
@@ -160,7 +176,48 @@ public static class ZstdInterop
     [DllImport(LIB, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ZDICT_getErrorName")]
     public static extern IntPtr ZDICT_getErrorName(nuint code);
 
-    // (Optional but useful right away)
     [DllImport(LIB, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ZSTD_getDictID_fromDict")]
     public static extern uint ZSTD_getDictID_fromDict(IntPtr dict, nuint dictSize);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern uint ZSTD_versionNumber();
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr ZSTD_versionString();
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern nuint ZSTD_findFrameCompressedSize(ref byte src, nuint srcSize);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern nuint ZSTD_CCtx_setParameter(IntPtr cctx, ZSTD_cParameter param, int value);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern nuint ZSTD_DCtx_setParameter(IntPtr dctx, ZSTD_dParameter param, int value);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern uint ZSTD_getDictID_fromFrame(ref byte src, nuint srcSize);
+    
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern uint ZSTD_getDictID_fromDDict(IntPtr ddict);
+    
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern uint ZSTD_getDictID_fromCDict(IntPtr cdict);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern nuint ZSTD_CCtx_loadDictionary(IntPtr cctx, IntPtr dict, nuint dictSize);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern nuint ZSTD_CCtx_loadDictionary_byReference(IntPtr cctx, IntPtr dict, nuint dictSize);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern nuint ZSTD_CCtx_refCDict(IntPtr cctx, IntPtr cdict);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern nuint ZSTD_DCtx_loadDictionary(IntPtr dctx, IntPtr dict, nuint dictSize);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern nuint ZSTD_DCtx_loadDictionary_byReference(IntPtr dctx, IntPtr dict, nuint dictSize);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern nuint ZSTD_DCtx_refDDict(IntPtr dctx, IntPtr ddict);
 }

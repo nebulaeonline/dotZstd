@@ -7,7 +7,7 @@
         <RootNamespace>nebulae.dotZstd</RootNamespace>
         <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
         <PackageId>nebulae.dotZstd</PackageId>
-        <Version>0.2.0</Version>
+        <Version>0.2.1</Version>
         <Authors>Robert C. Horvath III</Authors>
         <Company>Nebulae Foundation LLC</Company>
         <Description>High-performance cross-platform wrapper for Zstandard compression, including streaming support, with native SIMD-optimized libzstd bindings and Span-friendly .NET APIs.</Description>
@@ -18,6 +18,8 @@
         <PackageProjectUrl>https://github.com/nebulaeonline/dotZstd</PackageProjectUrl>
         <IncludeSymbols>false</IncludeSymbols>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <NoWarn>$(NoWarn);1591</NoWarn>
         <Copyright>Copyright © 2025 Nebulae Foundation LLC </Copyright>
         <PackageReadmeFile>docs\README.md</PackageReadmeFile>
     </PropertyGroup>

@@ -4,11 +4,26 @@ using System.Runtime.InteropServices;
 
 namespace nebulae.dotZstd;
 
+/// <summary>
+/// Provides functionality for compressing data using the Zstandard compression algorithm.
+/// </summary>
+/// <remarks>The <see cref="ZstdCompressStream"/> class enables efficient data compression using Zstandard, a fast
+/// and high-ratio compression algorithm. It supports various features such as custom compression levels, dictionaries,
+/// and multi-threading. Instances of this class are not thread-safe and must be disposed of when no longer needed to
+/// release unmanaged resources.</remarks>
 public sealed class ZstdCompressStream : IDisposable
 {
     private readonly IntPtr _cstream;
     private bool _disposed;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ZstdCompressStream"/> class with the specified compression level.
+    /// </summary>
+    /// <remarks>This constructor initializes the ZSTD compression stream and prepares it for use. Ensure that
+    /// the specified compression level is within the valid range to avoid unexpected behavior.</remarks>
+    /// <param name="compressionLevel">The compression level to use for the stream. Valid values range from 1 (fastest compression) to 22 (maximum
+    /// compression).</param>
+    /// <exception cref="InvalidOperationException">Thrown if the underlying ZSTD compression stream could not be allocated or initialized.</exception>
     public ZstdCompressStream(int compressionLevel)
     {
         ZstdLibrary.Init();
@@ -20,6 +35,15 @@ public sealed class ZstdCompressStream : IDisposable
         Check(initResult, "ZSTD_initCStream");
     }
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ZstdCompressStream"/> class using the specified Zstandard
+    /// compression dictionary.
+    /// </summary>
+    /// <remarks>This constructor sets up a Zstandard compression stream using the provided dictionary.  The
+    /// dictionary is used to optimize compression for specific data patterns. Ensure that the dictionary is properly
+    /// initialized before passing it to this constructor.</remarks>
+    /// <param name="dict">The compression dictionary to use for initializing the stream. Must not be null.</param>
+    /// <exception cref="InvalidOperationException">Thrown if the compression stream could not be allocated or initialized.</exception>
     public ZstdCompressStream(ZstdCompressionDictionary dict)
     {
         ZstdLibrary.Init();
@@ -203,6 +227,114 @@ public sealed class ZstdCompressStream : IDisposable
     {
         if (output is null) throw new ArgumentNullException(nameof(output));
         return Finish(output.AsSpan());
+    }
+
+    /// <summary>
+    /// Configures the compression stream to use the specified number of worker threads.
+    /// </summary>
+    /// <remarks>Using multiple worker threads can improve compression performance for large data streams.
+    /// However, the actual performance gain depends on the system's hardware and workload.</remarks>
+    /// <param name="workers">The number of worker threads to use for compression. Must be a non-negative integer. A value of 0 disables
+    /// multi-threading, while higher values increase parallelism.</param>
+    /// <returns>The current <see cref="ZstdCompressStream"/> instance, allowing for method chaining.</returns>
+    public ZstdCompressStream WithWorkers(int workers)
+    {
+        var rc = ZstdInterop.ZSTD_CCtx_setParameter(_cstream, ZSTD_cParameter.ZSTD_c_nbWorkers, workers);
+        Check(rc, "ZSTD_CCtx_setParameter(nbWorkers)");
+        return this;
+    }
+
+    /// <summary>
+    /// Enables or disables the inclusion of a checksum in the compressed stream.
+    /// </summary>
+    /// <remarks>When the checksum is enabled, a checksum is appended to the compressed stream,  which can be
+    /// used to verify the integrity of the data during decompression.</remarks>
+    /// <param name="on">A value indicating whether to enable the checksum.  <see langword="true"/> enables the checksum; <see
+    /// langword="false"/> disables it.  The default is <see langword="true"/>.</param>
+    /// <returns>The current <see cref="ZstdCompressStream"/> instance, allowing for method chaining.</returns>
+    public ZstdCompressStream ToggleChecksum(bool on = true)
+    {
+        var rc = ZstdInterop.ZSTD_CCtx_setParameter(_cstream, ZSTD_cParameter.ZSTD_c_checksumFlag, on ? 1 : 0);
+        Check(rc, "ZSTD_CCtx_setParameter(checksum)");
+        return this;
+    }
+
+    /// <summary>
+    /// Loads a compression dictionary into the current compression stream.
+    /// </summary>
+    /// <remarks>The dictionary is used to improve compression efficiency for data that shares similarities 
+    /// with the dictionary content. Ensure that the dictionary is properly constructed and matches  the data being
+    /// compressed to achieve optimal results.</remarks>
+    /// <param name="dictBytes">A read-only span of bytes representing the dictionary to be loaded.  The dictionary must be valid and compatible
+    /// with the Zstandard compression format.</param>
+    /// <returns>The current <see cref="ZstdCompressStream"/> instance, allowing for method chaining.</returns>
+    public unsafe ZstdCompressStream LoadDictionary(ReadOnlySpan<byte> dictBytes)
+    {
+        EnsureNotDisposed();
+        fixed (byte* p = dictBytes)
+        {
+            var rc = ZstdInterop.ZSTD_CCtx_loadDictionary(_cstream, (IntPtr)p, (nuint)dictBytes.Length);
+            Check(rc, "ZSTD_CCtx_loadDictionary");
+        }
+        return this;
+    }
+
+    /// <summary>
+    /// Loads a compression dictionary into the current stream by reference. You must ensure that the
+    /// reference remains valid for the lifetime of the stream.
+    /// </summary>
+    /// <remarks>This method uses the provided dictionary bytes directly without copying them, which can
+    /// improve performance. The caller must ensure that the memory backing <paramref name="dictBytes"/> remains valid
+    /// for the duration of its use.</remarks>
+    /// <param name="dictBytes">A read-only span of bytes representing the compression dictionary. The span must remain valid while the
+    /// dictionary is in use.</param>
+    /// <returns>The current <see cref="ZstdCompressStream"/> instance, allowing for method chaining.</returns>
+    public unsafe ZstdCompressStream LoadDictionaryByReference(ReadOnlySpan<byte> dictBytes)
+    {
+        EnsureNotDisposed();
+        fixed (byte* p = dictBytes)
+        {
+            var rc = ZstdInterop.ZSTD_CCtx_loadDictionary_byReference(_cstream, (IntPtr)p, (nuint)dictBytes.Length);
+            Check(rc, "ZSTD_CCtx_loadDictionary_byReference");
+        }
+        return this;
+    }
+
+    /// <summary>
+    /// Associates a pre-trained compression dictionary with the current compression stream.
+    /// </summary>
+    /// <remarks>Using a compression dictionary can improve compression ratios for data that shares
+    /// similarities  with the dictionary's training set. Ensure the dictionary is compatible with the data being
+    /// compressed.</remarks>
+    /// <param name="cdict">The compression dictionary to use for subsequent compression operations.  Cannot be <see langword="null"/>.</param>
+    /// <returns>The current <see cref="ZstdCompressStream"/> instance, allowing for method chaining.</returns>
+    /// <exception cref="ArgumentNullException">Thrown if <paramref name="cdict"/> is <see langword="null"/>.</exception>
+    public ZstdCompressStream RefDictionary(ZstdCompressionDictionary cdict)
+    {
+        if (cdict is null) throw new ArgumentNullException(nameof(cdict));
+        EnsureNotDisposed();
+        var rc = ZstdInterop.ZSTD_CCtx_refCDict(_cstream, cdict.Handle);
+        Check(rc, "ZSTD_CCtx_refCDict");
+        return this;
+    }
+
+    /// <summary>
+    /// Enables or disables long-distance matching for compression.
+    /// </summary>
+    /// <remarks>Long-distance matching can improve compression ratios for inputs with repeated patterns  that
+    /// are far apart. However, enabling this feature may increase memory usage and compression time.</remarks>
+    /// <param name="on">A value indicating whether long-distance matching should be enabled.  <see langword="true"/> enables
+    /// long-distance matching; <see langword="false"/> disables it.  The default is <see langword="true"/>.</param>
+    /// <returns>The current <see cref="ZstdCompressStream"/> instance, allowing for method chaining.</returns>
+    public ZstdCompressStream ToggleLongDistanceMatching(bool on = true)
+    {
+        EnsureNotDisposed();
+        var rc = ZstdInterop.ZSTD_CCtx_setParameter(
+            _cstream,
+            ZSTD_cParameter.ZSTD_c_longDistanceMatching,
+            on ? 1 : 0);
+        Check(rc, "ZSTD_CCtx_setParameter(longDistanceMatching)");
+        return this;
     }
 }
 
