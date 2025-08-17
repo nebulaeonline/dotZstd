@@ -1,4 +1,5 @@
 ﻿using System.Buffers;
+using System.Buffers.Binary;
 using System.Runtime.InteropServices;
 
 namespace nebulae.dotZstd;
@@ -636,32 +637,52 @@ public static class Zstd
     }
 
     /// <summary>
-    /// Enumerates frames within a binary blob, providing the offset and length of each frame.
+    /// Enumerates the frames within a Zstandard-compressed binary blob.
     /// </summary>
-    /// <remarks>This method processes the binary blob to identify frames based on specific magic numbers and
-    /// size information. Frames are either skippable or compressed, and their sizes are determined accordingly. If the
-    /// blob does not contain valid frame data or if the data is incomplete, the enumeration will terminate
-    /// early.</remarks>
-    /// <param name="blob">A read-only span of bytes representing the binary blob to analyze. The blob must contain valid frame data.</param>
-    /// <returns>An enumerable sequence of tuples, where each tuple contains the offset and length of a frame. The sequence ends
-    /// when no more valid frames can be found.</returns>
-    public static IEnumerable<(int Offset, int Length)> EnumerateFrames(ReadOnlySpan<byte> blob)
+    /// <remarks>This method identifies both skippable frames and regular Zstandard frames within the provided
+    /// binary blob. Skippable frames are detected based on their magic number range (0x184D2A50 to 0x184D2A5F), and
+    /// their size is determined using the size field. Regular Zstandard frames are processed to determine their
+    /// compressed size.  If the blob does not contain enough data to fully define a frame, the enumeration
+    /// stops.</remarks>
+    /// <param name="blob">A read-only span of bytes representing the binary blob to analyze.</param>
+    /// <returns>A list of tuples, where each tuple contains the offset and length of a frame. The offset represents the starting
+    /// position of the frame within the blob, and the length represents the size of the frame.</returns>
+    public static List<(int Offset, int Length)> EnumerateFrames(ReadOnlySpan<byte> blob)
     {
+        var frames = new List<(int, int)>();
         int off = 0;
+
         while (off < blob.Length)
         {
-            if (off + 4 > blob.Length) yield break;
-            uint magic = BitConverter.ToUInt32(blob.Slice(off, 4));
-            if (IsSkippableFrameMagic(magic))
+            // Need at least 4 bytes for magic
+            if (off + 4 > blob.Length) break;
+
+            // Read magic (little-endian in zstd spec)
+            uint magic = BinaryPrimitives.ReadUInt32LittleEndian(blob.Slice(off, 4));
+
+            // Skippable frames (0x184D2A50..0x184D2A5F)
+            if (magic >= 0x184D2A50 && magic <= 0x184D2A5F)
             {
-                if (off + 8 > blob.Length) yield break;
-                uint size = BitConverter.ToUInt32(blob.Slice(off + 4, 4));
-                int len = checked((int)(8 + size)); if (off + len > blob.Length) yield break;
-                yield return (off, len); off += len; continue;
+                if (off + 8 > blob.Length) break; // need size field
+                uint size = BinaryPrimitives.ReadUInt32LittleEndian(blob.Slice(off + 4, 4));
+                long len64 = 8L + size;
+                if (len64 > int.MaxValue) break;
+                int len = (int)len64;
+                if (off + len > blob.Length) break;
+
+                frames.Add((off, len));
+                off += len;
+                continue;
             }
+
+            // Regular zstd frame: ask zstd for exact length
             int flen = FindFrameCompressedSize(blob.Slice(off));
-            if (flen <= 0) yield break;
-            yield return (off, flen); off += flen;
+            if (flen <= 0 || off + flen > blob.Length) break;
+
+            frames.Add((off, flen));
+            off += flen;
         }
+
+        return frames;
     }
 }
