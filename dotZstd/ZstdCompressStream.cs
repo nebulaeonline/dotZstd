@@ -245,6 +245,19 @@ public sealed class ZstdCompressStream : IDisposable
     }
 
     /// <summary>
+    /// Sets the pledged source size for the compression stream and returns the current instance.
+    /// </summary>
+    /// <remarks>Setting the pledged source size can improve compression efficiency by enabling the compressor
+    /// to make better decisions. If the actual size of the source data differs from the pledged size, compression may
+    /// still succeed, but performance or compression ratio may be affected.</remarks>
+    /// <param name="size">The total size, in bytes, of the source data to be compressed. This value is used to optimize compression.</param>
+    /// <returns>The current <see cref="ZstdCompressStream"/> instance, allowing for method chaining.</returns>
+    public ZstdCompressStream WithPledgedSize(ulong size)
+    {
+        var rc = ZstdInterop.ZSTD_CCtx_setPledgedSrcSize(_cstream, size); Check(rc, "ZSTD_CCtx_setPledgedSrcSize"); return this;
+    }
+
+    /// <summary>
     /// Enables or disables the inclusion of a checksum in the compressed stream.
     /// </summary>
     /// <remarks>When the checksum is enabled, a checksum is appended to the compressed stream,  which can be

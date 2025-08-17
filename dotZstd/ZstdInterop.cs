@@ -30,13 +30,25 @@ public enum ZSTD_cParameter : int
     ZSTD_c_nbWorkers = 400,
     ZSTD_c_jobSize = 401,
     ZSTD_c_overlapLog = 402,
+    ZSTD_c_contentSizeFlag = 500, 
+    ZSTD_c_dictIDFlag = 501,
+    ZSTD_c_windowLog = 1000,
     ZSTD_c_longDistanceMatching = 1002
 }
 
 public enum ZSTD_dParameter : int
 {
+    ZSTD_d_windowLogMax = 100, 
+    ZSTD_d_format = 200,
     ZSTD_d_stableOutBuffer = 400,
     ZSTD_d_refMultipleDDicts = 500
+}
+
+public enum ZSTD_ResetDirective : uint 
+{ 
+    ZSTD_reset_session_only = 1, 
+    ZSTD_reset_parameters = 2, 
+    ZSTD_reset_session_and_parameters = 3
 }
 
 public static class ZstdInterop
@@ -220,4 +232,25 @@ public static class ZstdInterop
 
     [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
     public static extern nuint ZSTD_DCtx_refDDict(IntPtr dctx, IntPtr ddict);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)] 
+    public static extern int ZSTD_minCLevel();
+    
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)] 
+    public static extern int ZSTD_maxCLevel();
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)] 
+    public static extern int ZSTD_defaultCLevel();
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)]
+    public static extern ulong ZSTD_decompressBound(ref byte src, nuint srcSize);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)] 
+    public static extern nuint ZSTD_CCtx_reset(IntPtr cctx, ZSTD_ResetDirective d);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)] 
+    public static extern nuint ZSTD_DCtx_reset(IntPtr dctx, ZSTD_ResetDirective d);
+
+    [DllImport(LIB, CallingConvention = CallingConvention.Cdecl)] 
+    public static extern nuint ZSTD_CCtx_setPledgedSrcSize(IntPtr cctx, ulong pledgedSrcSize);
 }

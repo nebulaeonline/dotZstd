@@ -1,7 +1,15 @@
-﻿using System.Runtime.InteropServices;
+﻿using System.Buffers;
+using System.Runtime.InteropServices;
 
 namespace nebulae.dotZstd;
 
+/// <summary>
+/// Provides static methods for interacting with the Zstandard compression library.
+/// </summary>
+/// <remarks>The <see cref="Zstd"/> class offers a variety of methods for compression, decompression, and buffer
+/// size recommendations using the Zstandard algorithm. It also includes utilities for working with Zstandard
+/// dictionaries and retrieving version information. This class is designed to simplify integration with the Zstandard
+/// library and ensure optimal performance for compression and decompression operations.</remarks>
 public static class Zstd
 {
     /// <summary>
@@ -23,6 +31,32 @@ public static class Zstd
     /// single integer, where the major, minor, and patch versions are combined (e.g., version 1.5.2 would be
     /// represented as 10502).</returns>
     public static uint VersionNumber() => ZstdInterop.ZSTD_versionNumber();
+
+    /// <summary>
+    /// Retrieves the minimum compression level supported by the Zstandard library.
+    /// </summary>
+    /// <remarks>The compression level determines the trade-off between compression ratio and speed. Lower
+    /// levels typically result in faster compression but less effective compression.</remarks>
+    /// <returns>The minimum compression level as an integer. This value represents the lowest level of compression that can be
+    /// applied using the Zstandard algorithm.</returns>
+    public static int MinLevel() => ZstdInterop.ZSTD_minCLevel();
+    
+    /// <summary>
+    /// Retrieves the maximum compression level supported by the Zstandard library.
+    /// </summary>
+    /// <remarks>This method is a wrapper around the Zstandard library's native functionality. The returned
+    /// value can be used to configure compression settings for optimal results based on application
+    /// requirements.</remarks>
+    /// <returns>The highest compression level available for Zstandard compression. Higher values typically result in better
+    /// compression ratios but may require more computational resources.</returns>
+    public static int MaxLevel() => ZstdInterop.ZSTD_maxCLevel();
+    
+    /// <summary>
+    /// Retrieves the default compression level used by the Zstandard library.
+    /// </summary>
+    /// <returns>The default compression level as an integer. This value is determined by the Zstandard library and may vary
+    /// depending on the version or configuration.</returns>
+    public static int DefaultLevel() => ZstdInterop.ZSTD_defaultCLevel();
 
     /// <summary>
     /// Retrieves the recommended input buffer size for compression streams.
@@ -83,6 +117,16 @@ public static class Zstd
     /// <returns>The dictionary ID used to compress the frame, or <see langword="0"/> if no dictionary was used.</returns>
     public static uint GetDictIdFromFrame(ReadOnlySpan<byte> frame) =>
         ZstdInterop.ZSTD_getDictID_fromFrame(ref MemoryMarshal.GetReference(frame), (nuint)frame.Length);
+
+    /// <summary>
+    /// Determines whether the specified magic value represents a skippable frame.
+    /// </summary>
+    /// <remarks>A skippable frame is identified by a magic value within the range 0x184D2A50 to 0x184D2A5F,
+    /// inclusive. This method can be used to filter or process frames based on their magic values.</remarks>
+    /// <param name="magic">The magic value to evaluate.</param>
+    /// <returns><see langword="true"/> if the magic value is within the range of skippable frames;  otherwise, <see
+    /// langword="false"/>. </returns>
+    public static bool IsSkippableFrameMagic(uint magic) => magic >= 0x184D2A50 && magic <= 0x184D2A5F;
 
     /// <summary>
     /// Compresses the input data using the specified compression level and writes the compressed data to the output
@@ -154,6 +198,17 @@ public static class Zstd
     {
         return checked((int)ZstdInterop.GetCompressBound((nuint)uncompressedSize));
     }
+
+    /// <summary>
+    /// Calculates the maximum size of the decompressed data for a given compressed frame.
+    /// </summary>
+    /// <remarks>This method is useful for allocating a buffer large enough to hold the decompressed data 
+    /// before performing the actual decompression. The returned value represents an upper bound  and may exceed the
+    /// actual size of the decompressed data.</remarks>
+    /// <param name="frame">A read-only span of bytes representing the compressed frame.  The span must contain valid compressed data.</param>
+    /// <returns>The maximum size, in bytes, of the decompressed data that can result from the given compressed frame.</returns>
+    public static long GetMaxDecompressedSize(ReadOnlySpan<byte> frame) =>
+        (long)ZstdInterop.ZSTD_decompressBound(ref MemoryMarshal.GetReference(frame), (nuint)frame.Length);
 
     /// <summary>
     /// Determines the decompressed size of the given compressed data.
@@ -336,5 +391,277 @@ public static class Zstd
         if (ZstdInterop.IsError(n) != 0)
             throw new InvalidOperationException("findFrameCompressedSize failed");
         return checked((int)n);
+    }
+
+    /// <summary>
+    /// Compresses a file to <paramref name="outputPath"/> using Zstandard.
+    /// </summary>
+    /// <param name="inputPath">Path to the source file.</param>
+    /// <param name="outputPath">Path to write the compressed file (overwritten if exists).</param>
+    /// <param name="compressionLevel">1..22 (higher = smaller but slower). Default 3.</param>
+    public static void CompressFile(string inputPath, string outputPath, int compressionLevel = 3)
+        => CompressFileInternal(inputPath, outputPath, compressionLevel, dictBytes: null);
+
+    /// <summary>
+    /// Compresses a file with a Zstandard dictionary.
+    /// </summary>
+    /// <param name="inputPath">Path to the source file.</param>
+    /// <param name="outputPath">Path to write the compressed file (overwritten if exists).</param>
+    /// <param name="dict">Dictionary bytes (trained or prebuilt).</param>
+    /// <param name="compressionLevel">1..22 (higher = smaller but slower). Default 3.</param>
+    public static void CompressFile(string inputPath, string outputPath, byte[] dict, int compressionLevel = 3)
+        => CompressFileInternal(inputPath, outputPath, compressionLevel, dictBytes: dict);
+
+    /// <summary>
+    /// Decompresses a .zst file to <paramref name="outputPath"/>.
+    /// </summary>
+    public static void DecompressFile(string inputPath, string outputPath)
+        => DecompressFileInternal(inputPath, outputPath, dictBytes: null);
+
+    /// <summary>
+    /// Decompresses a .zst file that was compressed with the specified dictionary.
+    /// </summary>
+    public static void DecompressFile(string inputPath, string outputPath, byte[] dict)
+        => DecompressFileInternal(inputPath, outputPath, dictBytes: dict);
+
+    /// <summary>
+    /// Compresses a file using the Zstandard compression algorithm and writes the compressed output to a specified
+    /// file.
+    /// </summary>
+    /// <remarks>This method performs streaming compression, making it suitable for large files.  The output
+    /// file's directory will be created if it does not already exist.</remarks>
+    /// <param name="inputPath">The path to the input file to be compressed. Must not be null, empty, or whitespace.</param>
+    /// <param name="outputPath">The path to the output file where the compressed data will be written. Must not be null, empty, or whitespace.</param>
+    /// <param name="level">The compression level to use, ranging from 1 (fastest) to 22 (maximum compression).  Must be within the range of
+    /// 1 to 22.</param>
+    /// <param name="dictBytes">An optional byte array representing a custom compression dictionary.  If provided, the dictionary will be used
+    /// to improve compression efficiency. Pass <see langword="null"/> or an empty array to use default compression
+    /// settings.</param>
+    /// <exception cref="ArgumentException">Thrown if <paramref name="inputPath"/> or <paramref name="outputPath"/> is null, empty, or consists only of
+    /// whitespace.</exception>
+    /// <exception cref="FileNotFoundException">Thrown if the file specified by <paramref name="inputPath"/> does not exist.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown if <paramref name="level"/> is outside the valid range of 1 to 22.</exception>
+    /// <exception cref="InvalidOperationException">Thrown if the compression stream or dictionary initialization fails, or if an error occurs during compression.</exception>
+    private static unsafe void CompressFileInternal(string inputPath, string outputPath, int level, byte[]? dictBytes)
+    {
+        if (string.IsNullOrWhiteSpace(inputPath)) throw new ArgumentException("Input path is required.", nameof(inputPath));
+        if (string.IsNullOrWhiteSpace(outputPath)) throw new ArgumentException("Output path is required.", nameof(outputPath));
+        if (!File.Exists(inputPath)) throw new FileNotFoundException("Input file not found.", inputPath);
+        if (level < 1 || level > 22) throw new ArgumentOutOfRangeException(nameof(level), "Compression level must be 1..22.");
+
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath)) ?? ".");
+
+        int inChunk = RecommendedCStreamInSize();
+        int outChunk = RecommendedCStreamOutSize();
+
+        byte[] inBuf = ArrayPool<byte>.Shared.Rent(inChunk);
+        byte[] outBuf = ArrayPool<byte>.Shared.Rent(outChunk);
+
+        IntPtr cctx = IntPtr.Zero;
+        IntPtr cdict = IntPtr.Zero;
+
+        try
+        {
+            cctx = ZstdInterop.ZSTD_createCStream();
+            if (cctx == IntPtr.Zero) throw new InvalidOperationException("Failed to create ZSTD_CStream");
+
+            nuint initRc;
+
+            if (dictBytes is { Length: > 0 })
+            {
+                // Use a CDict (best perf when reusing across many files; fine here too)
+                fixed (byte* pDict = dictBytes)
+                {
+                    cdict = ZstdInterop.ZSTD_createCDict((IntPtr)pDict, (nuint)dictBytes.Length, level);
+                }
+                if (cdict == IntPtr.Zero) throw new InvalidOperationException("Failed to create CDict");
+                initRc = ZstdInterop.ZSTD_initCStream_usingCDict(cctx, cdict);
+            }
+            else
+            {
+                initRc = ZstdInterop.ZSTD_initCStream(cctx, level);
+            }
+
+            Check(initRc, "ZSTD_initCStream");
+
+            using var fin = new FileStream(inputPath, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 20, FileOptions.SequentialScan);
+            using var fout = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20, FileOptions.SequentialScan);
+
+            while (true)
+            {
+                int read = fin.Read(inBuf, 0, inBuf.Length);
+                if (read == 0) break;
+
+                fixed (byte* pin = inBuf)
+                fixed (byte* pout = outBuf)
+                {
+                    var inB = new ZstdInBuffer { src = (IntPtr)pin, size = (nuint)read, pos = 0 };
+                    while (inB.pos < inB.size)
+                    {
+                        var outB = new ZstdOutBuffer { dst = (IntPtr)pout, size = (nuint)outBuf.Length, pos = 0 };
+                        nuint rc = ZstdInterop.ZSTD_compressStream(cctx, ref outB, ref inB);
+                        Check(rc, "ZSTD_compressStream");
+                        if (outB.pos > 0)
+                            fout.Write(outBuf, 0, checked((int)outB.pos));
+                    }
+                }
+            }
+
+            // Finish the frame
+            fixed (byte* pout = outBuf)
+            {
+                var outB = new ZstdOutBuffer { dst = (IntPtr)pout, size = (nuint)outBuf.Length, pos = 0 };
+                nuint remaining;
+                do
+                {
+                    outB.pos = 0;
+                    remaining = ZstdInterop.ZSTD_endStream(cctx, ref outB);
+                    Check(remaining, "ZSTD_endStream");
+                    if (outB.pos > 0)
+                        fout.Write(outBuf, 0, checked((int)outB.pos));
+                } while (remaining != 0);
+            }
+        }
+        finally
+        {
+            if (cdict != IntPtr.Zero) ZstdInterop.ZSTD_freeCDict(cdict);
+            if (cctx != IntPtr.Zero) ZstdInterop.ZSTD_freeCStream(cctx);
+            ArrayPool<byte>.Shared.Return(inBuf);
+            ArrayPool<byte>.Shared.Return(outBuf);
+        }
+
+        static void Check(nuint code, string ctx)
+        {
+            if (ZstdInterop.IsError(code) != 0)
+            {
+                var ptr = ZstdInterop.GetErrorName(code);
+                var msg = Marshal.PtrToStringAnsi(ptr) ?? "Unknown zstd error";
+                throw new InvalidOperationException($"{ctx} failed: {msg}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Decompresses a file using Zstandard compression and writes the decompressed data to the specified output file.
+    /// </summary>
+    /// <remarks>This method uses Zstandard decompression to process the input file and write the decompressed
+    /// data to the output file. It creates the necessary directories for the output file if they do not already exist.
+    /// The method is optimized for sequential file access and uses buffer pooling to minimize memory
+    /// allocations.</remarks>
+    /// <param name="inputPath">The path to the input file to be decompressed. Must not be null, empty, or whitespace.</param>
+    /// <param name="outputPath">The path to the output file where the decompressed data will be written. Must not be null, empty, or whitespace.</param>
+    /// <param name="dictBytes">An optional byte array representing a Zstandard dictionary to use for decompression. If null or empty, no
+    /// dictionary is used.</param>
+    /// <exception cref="ArgumentException">Thrown if <paramref name="inputPath"/> or <paramref name="outputPath"/> is null, empty, or consists only of
+    /// whitespace.</exception>
+    /// <exception cref="FileNotFoundException">Thrown if the file specified by <paramref name="inputPath"/> does not exist.</exception>
+    /// <exception cref="InvalidOperationException">Thrown if the Zstandard decompression stream or dictionary cannot be initialized, or if a decompression error
+    /// occurs.</exception>
+    private static unsafe void DecompressFileInternal(string inputPath, string outputPath, byte[]? dictBytes)
+    {
+        if (string.IsNullOrWhiteSpace(inputPath)) throw new ArgumentException("Input path is required.", nameof(inputPath));
+        if (string.IsNullOrWhiteSpace(outputPath)) throw new ArgumentException("Output path is required.", nameof(outputPath));
+        if (!File.Exists(inputPath)) throw new FileNotFoundException("Input file not found.", inputPath);
+
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath)) ?? ".");
+
+        int inChunk = RecommendedDStreamInSize();
+        int outChunk = RecommendedDStreamOutSize();
+
+        byte[] inBuf = ArrayPool<byte>.Shared.Rent(inChunk);
+        byte[] outBuf = ArrayPool<byte>.Shared.Rent(outChunk);
+
+        IntPtr dctx = IntPtr.Zero;
+        IntPtr ddict = IntPtr.Zero;
+
+        try
+        {
+            dctx = ZstdInterop.ZSTD_createDStream();
+            if (dctx == IntPtr.Zero) throw new InvalidOperationException("Failed to create ZSTD_DStream");
+
+            nuint initRc;
+            if (dictBytes is { Length: > 0 })
+            {
+                fixed (byte* pDict = dictBytes)
+                {
+                    ddict = ZstdInterop.ZSTD_createDDict((IntPtr)pDict, (nuint)dictBytes.Length);
+                }
+                if (ddict == IntPtr.Zero) throw new InvalidOperationException("Failed to create DDict");
+                initRc = ZstdInterop.ZSTD_initDStream_usingDDict(dctx, ddict);
+            }
+            else
+            {
+                initRc = ZstdInterop.ZSTD_initDStream(dctx);
+            }
+            Check(initRc, "ZSTD_initDStream");
+
+            using var fin = new FileStream(inputPath, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 20, FileOptions.SequentialScan);
+            using var fout = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20, FileOptions.SequentialScan);
+
+            int read;
+            while ((read = fin.Read(inBuf, 0, inBuf.Length)) > 0)
+            {
+                fixed (byte* pin = inBuf)
+                fixed (byte* pout = outBuf)
+                {
+                    var inB = new ZstdInBuffer { src = (IntPtr)pin, size = (nuint)read, pos = 0 };
+                    while (inB.pos < inB.size)
+                    {
+                        var outB = new ZstdOutBuffer { dst = (IntPtr)pout, size = (nuint)outBuf.Length, pos = 0 };
+                        nuint rc = ZstdInterop.ZSTD_decompressStream(dctx, ref outB, ref inB);
+                        Check(rc, "ZSTD_decompressStream");
+                        if (outB.pos > 0)
+                            fout.Write(outBuf, 0, checked((int)outB.pos));
+                    }
+                }
+            }
+        }
+        finally
+        {
+            if (ddict != IntPtr.Zero) ZstdInterop.ZSTD_freeDDict(ddict);
+            if (dctx != IntPtr.Zero) ZstdInterop.ZSTD_freeDStream(dctx);
+            ArrayPool<byte>.Shared.Return(inBuf);
+            ArrayPool<byte>.Shared.Return(outBuf);
+        }
+
+        static void Check(nuint code, string ctx)
+        {
+            if (ZstdInterop.IsError(code) != 0)
+            {
+                var ptr = ZstdInterop.GetErrorName(code);
+                var msg = Marshal.PtrToStringAnsi(ptr) ?? "Unknown zstd error";
+                throw new InvalidOperationException($"{ctx} failed: {msg}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Enumerates frames within a binary blob, providing the offset and length of each frame.
+    /// </summary>
+    /// <remarks>This method processes the binary blob to identify frames based on specific magic numbers and
+    /// size information. Frames are either skippable or compressed, and their sizes are determined accordingly. If the
+    /// blob does not contain valid frame data or if the data is incomplete, the enumeration will terminate
+    /// early.</remarks>
+    /// <param name="blob">A read-only span of bytes representing the binary blob to analyze. The blob must contain valid frame data.</param>
+    /// <returns>An enumerable sequence of tuples, where each tuple contains the offset and length of a frame. The sequence ends
+    /// when no more valid frames can be found.</returns>
+    public static IEnumerable<(int Offset, int Length)> EnumerateFrames(ReadOnlySpan<byte> blob)
+    {
+        int off = 0;
+        while (off < blob.Length)
+        {
+            if (off + 4 > blob.Length) yield break;
+            uint magic = BitConverter.ToUInt32(blob.Slice(off, 4));
+            if (IsSkippableFrameMagic(magic))
+            {
+                if (off + 8 > blob.Length) yield break;
+                uint size = BitConverter.ToUInt32(blob.Slice(off + 4, 4));
+                int len = checked((int)(8 + size)); if (off + len > blob.Length) yield break;
+                yield return (off, len); off += len; continue;
+            }
+            int flen = FindFrameCompressedSize(blob.Slice(off));
+            if (flen <= 0) yield break;
+            yield return (off, flen); off += flen;
+        }
     }
 }
