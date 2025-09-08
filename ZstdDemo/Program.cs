@@ -77,8 +77,6 @@ internal static class Program
         // Output buffer sized by zstd's recommended stream size
         byte[] outBuf = new byte[Zstd.RecommendedCStreamOutSize()];
         using var compressor = new ZstdCompressStream(compressionLevel: 5)
-            // If your libzstd was built with multithreading, this enables parallel compression.
-            // If not, your helper can no-op or you can comment this out.
             .WithWorkers(Math.Max(1, Environment.ProcessorCount / 2))
             .ToggleChecksum()               // add a frame checksum
             .ToggleLongDistanceMatching();  // better on large repetitive data
